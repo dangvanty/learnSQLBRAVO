@@ -188,7 +188,7 @@ go
 
 SELECT ItemCode, ItemName, Unit, ItemType, IsActive
 FROM Item 
-WHERE ItemCode IN
+WHERE ItemType = 2 AND ItemCode IN
     (SELECT ItemCode FROM SortCountSale_CTE WHERE rank =1)
 
 --BÀI TẬP 8: Tìm mặt hàng có tổng doanh số bán lớn nhất.
@@ -201,7 +201,7 @@ WHERE ItemCode IN
 )
 SELECT ItemCode, ItemName, Unit, ItemType, IsActive
 FROM Item 
-WHERE ItemCode IN
+WHERE ItemType = 2 AND ItemCode IN
     (SELECT ItemCode FROM SortSumSale_CTE WHERE rank =1)
 
 --BÀI TẬP 9: Thể hiện tổng số tiền mua hàng và số tiền bán hàng của từng ngày gồm các cột:
@@ -367,4 +367,87 @@ GROUP BY ItemCode, ItemName, Unit
 
 ----
 --CHECK
+--===========================
+-- Chương VIII
+--===========================
+--Bai1
+CREATE TABLE Employee (
+	EmployeeCode CHAR (16) NOT NUll DEFAULT (''),
+	EmployeeName NVARCHAR (96) NOT NUll DEFAULT (''),
+	Gender INT NOT NUll CHECK(Gender in (1,2,3)), --INT -> 1: Nam; 2: Nữ; 3: Khác
+	DeptCode NVARCHAR (16) NOT NUll DEFAULT (''),
+	Salary NUMERIC (18,2) NOT NUll DEFAULT (0),
+    IsActive INT NOT NULL CHECK (IsActive IN(0,1))
+)
 
+INSERT INTO Employee (EmployeeCode, EmployeeName, Gender, DeptCode, Salary, IsActive)
+VALUES ('NV01', N'Phi Công Anh', 1, 'TK', 12000000, 1),
+       ('NV02', N'Đàm Văn Đức', 1, 'TK', 11000000, 1),
+       ('NV03', N'Ninh Ngọc Hiếu', 1, 'TK', 15000000, 1),
+       ('NV04', N'Nguyễn Thu Huyền', 2, 'BH', 10000000, 1),
+       ('NV05', N'Đỗ Xuân Thiết', 1, 'BH', 13000000, 1),
+       ('NV06', N'Nguyễn Xuân Dũng', 1, 'CN', 15000000, 1),
+       ('NV07', N'Nguyễn Sĩ Quyền', 1, 'CN', 14000000, 1)
+
+-- Lấy ra các đối tượng thuộc đơn vị tổ chức và nhân viên là nam với cấu trúc: Mã đối tượng, tên đối tượng.
+SELECT N'Mã đối tượng' = EmployeeCode, N'Tên đối tượng' = EmployeeName
+FROM Employee
+WHERE DeptCode = 'TK' AND Gender = 1
+
+/*Hiển thị thông tin bảng kê những chứng từ bán hàng, sắp xếp theo thứ tự ngày tăng dần, số
+tăng dần. Phần bôi đậm sẽ được sắp xếp theo thứ tự giảm dần. Ra được kết quả như sau là đúng */
+
+SELECT N'Số chứng từ' = DocNo, N'Ngày chứng từ' = ngay_chung_tu,  N'Mã vật tư' = ItemCode,
+N'Diễn giải' = dien_giai, N'ĐVT' = Unit, N'Số lượng' = Quantity, N'Đơn giá' = UnitPrice,
+N'Tiền bán hàng' = Amount2
+FROM
+(SELECT Tb1.DocNo, ngay_chung_tu = FORMAT (Tb1.DocDate, 'dd/MM/yyyy '), Tb2.ItemCode, 
+dien_giai = Item.ItemName, Item.Unit, Tb2.Quantity, 
+Tb2.UnitPrice, Tb2.Amount2, Tb1.CustomerCode
+FROM AccDoc Tb1 LEFT JOIN AccDocDetail Tb2 ON Tb1.DocNo = Tb2.DocNo 
+    LEFT JOIN Item ON Tb2.ItemCode = Item.ItemCode 
+WHERE Tb1.DocCode = 'HD'
+UNION ALL
+SELECT DocNo = '', ngay_chung_tu = '', ItemCode = '', 
+dien_giai = CONCAT(Cus.CustomerCode,' - ', Cus.CustomerName), Unit = '', Quantity = 0, 
+UnitPrice = 0, Amount2 = SUM(Tb2.Amount2), Cus.CustomerCode
+FROM AccDoc Tb1 LEFT JOIN AccDocDetail Tb2 ON Tb1.DocNo = Tb2.DocNo 
+    LEFT JOIN Customer Cus ON Tb1.CustomerCode = Cus.CustomerCode
+WHERE Tb1.DocCode = 'HD' 
+GROUP BY Cus.CustomerCode, Cus.CustomerName 
+)
+Kq
+ORDER BY  CustomerCode DESC, ngay_chung_tu
+
+---==============================
+---==============================
+IF OBJECT_ID('tempdb..#tbdetail ') IS NOT NULL DROP TABLE #tbdetail 
+SELECT * INTO #tbdetail 
+FROM(
+SELECT tb.ItemCode, ItemName, Unit, 
+ton_dau = OI.Quantity, Sl_nhap, Sl_sx,
+ton_cuoi = OI.Quantity + Sl_nhap - Sl_sx
+FROM ( SELECT ItemCode, ItemName, Unit, Sl_nhap = SUM(Sl_nhap), Sl_sx= SUM(Sl_sx)
+FROM (SELECT Tb1.ItemCode, Item.ItemName, Item.Unit,
+CASE WHEN Tb1.DocCode = 'NM' THEN SUM(Tb1.Quantity)
+ELSE 0 END AS Sl_nhap,
+CASE WHEN Tb1.DocCode = 'PX' THEN SUM(Tb1.Quantity)
+ELSE 0 END AS Sl_sx
+FROM AccDocDetail Tb1
+LEFT OUTER JOIN Item Item ON Tb1.ItemCode = Item.ItemCode
+WHERE Tb1.DocCode IN ('NM','PX')
+GROUP BY Tb1.ItemCode, Tb1.DocCode, Item.ItemName, Item.Unit) tb_tam
+GROUP BY ItemCode, ItemName, Unit) tb
+LEFT JOIN OpenInventory OI ON OI.ItemCode = tb.ItemCode) a
+
+SELECT N'Mã vật tư' = ItemCode, N'Tên vật tư' = ItemName, N'Đvt' = Unit, 
+N'Tồn đầu' = ton_dau, N'SL nhập' = Sl_nhap, N'SL xuất' = Sl_sx, N'Tồn cuối' = ton_cuoi
+ FROM (
+SELECT * FROM #tbdetail
+UNION ALL
+(SELECT ItemCode = '', ItemName = N'Tổng cộng', Unit = '',
+    ton_dau = SUM(ton_dau), Sl_Nhap = SUM(Sl_nhap),
+    Sl_sx = SUM(Sl_sx), ton_cuoi = SUM(ton_cuoi)
+    FROM #tbdetail
+)
+) Kq
