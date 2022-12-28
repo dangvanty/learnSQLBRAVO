@@ -371,6 +371,7 @@ GROUP BY ItemCode, ItemName, Unit
 -- Chương VIII
 --===========================
 --Bai1
+
 CREATE TABLE Employee (
 	EmployeeCode CHAR (16) NOT NUll DEFAULT (''),
 	EmployeeName NVARCHAR (96) NOT NUll DEFAULT (''),
@@ -451,3 +452,301 @@ UNION ALL
     FROM #tbdetail
 )
 ) Kq
+
+--================================
+-- chương 9 
+--================================
+
+SELECT EmployeeCode, EmployeeName,
+CASE WHEN CAST(BH as NVARCHAR(MAX)) is NULL then ''
+ELSE CAST(BH as NVARCHAR(MAX)) END  as BH,
+CASE WHEN CAST(CN as NVARCHAR(MAX)) is NULL then ''
+ELSE CAST(CN as NVARCHAR(MAX)) END  as CN,
+CASE WHEN CAST(TK as NVARCHAR(MAX)) is NULL then ''
+ELSE CAST(TK as NVARCHAR(MAX)) END  as TK
+FROM Employee AS Tb1
+PIVOT
+(
+SUM (Salary) FOR DeptCode IN (BH, CN, TK)
+) AS Tb2
+UNION ALL
+SELECT CAST ('' AS NVARCHAR(16)) AS EmployeeCode,
+N'Tổng lương' AS EmployeeName, CAST(BH as NVARCHAR(MAX)) as BH, 
+CAST(CN as NVARCHAR(MAX)) as CN, CAST(TK as NVARCHAR(MAX)) TK 
+FROM (SELECT DeptCode, Salary FROM EmPloyee) AS Tb3
+PIVOT
+(
+SUM(Salary)
+FOR DeptCode IN (BH, CN, TK)
+) AS Tb4
+
+--C2 chuyển null thành 0 
+
+SELECT EmployeeCode, EmployeeName, ISNULL(BH,0)as BH, ISNULL(CN,0) as CN, ISNULL(TK,0) as TK
+FROM Employee AS Tb1
+PIVOT
+(
+SUM (Salary) FOR DeptCode IN (BH, CN, TK)
+) AS Tb2
+UNION ALL
+SELECT CAST ('' AS NVARCHAR(16)) AS EmployeeCode,
+N'Tổng lương' AS EmployeeName, BH, CN, TK 
+FROM (SELECT DeptCode, Salary FROM EmPloyee) AS Tb3
+PIVOT
+(
+SUM(Salary)
+FOR DeptCode IN (BH, CN, TK)
+) AS Tb4
+
+--+++++++++++++Có thể động được trong trường hợp đổi mã bộ phận (DeptCode) hoặc thêm mới bộ phận thì 
+--vẫn chạy được mà không sửa code
+--c1
+go
+DECLARE @sql AS NVARCHAR(MAX)
+DECLARE @deptcodes AS NVARCHAR(MAX) = STUFF(
+         (SELECT ',' + DeptCode
+          FROM (select distinct DeptCode from Employee)  p
+          FOR XML PATH (''))
+          , 1, 1, '')
+
+DECLARE @deptcodes1 AS NVARCHAR(MAX) = STUFF(
+         (SELECT ',' + CONCAT('ISNULL(',DeptCode,',','0)',DeptCode)
+          FROM (select distinct DeptCode from Employee)  p
+          FOR XML PATH (''))
+          , 1, 1, '')
+
+DECLARE @tongluong AS NVARCHAR(MAX) = N'Tổng lương'
+
+SET @sql =N'SELECT EmployeeCode, EmployeeName, '+@deptcodes1+'
+FROM Employee AS Tb1
+PIVOT
+(
+SUM (Salary) FOR DeptCode IN ('+@deptcodes+')
+) AS Tb2
+UNION ALL
+SELECT CAST ('''' AS NVARCHAR(16)) AS EmployeeCode,
+N''' + @tongluong + N''' AS EmployeeName, '+@deptcodes1+'
+FROM (SELECT DeptCode, Salary FROM EmPloyee) AS Tb3
+PIVOT
+(
+SUM(Salary)
+FOR DeptCode IN ('+@deptcodes1+')
+) AS Tb4'
+EXEC sp_executesql @sql
+---
+
+--c2
+go
+DECLARE @sql AS NVARCHAR(MAX)
+DECLARE @deptcodes AS NVARCHAR(MAX) = STUFF(
+         (SELECT ',' + DeptCode
+          FROM (select distinct DeptCode from Employee)  p
+          FOR XML PATH (''))
+          , 1, 1, '')
+
+DECLARE @columnName1 AS NVARCHAR(MAX) = STUFF(
+         (SELECT ',' + CONCAT('CASE WHEN CAST(',DeptCode,' AS NVARCHAR(MAX)) is NULL THEN '''' ELSE CAST(' ,DeptCode,' as NVARCHAR(MAX)) END ',DeptCode)
+          FROM (select distinct DeptCode from Employee)  p
+          FOR XML PATH (''))
+          , 1, 1, '')
+DECLARE @columnName2 AS NVARCHAR(MAX) = STUFF(
+         (SELECT ',' + CONCAT('CAST(',DeptCode,' AS NVARCHAR(MAX))',DeptCode)
+          FROM (select distinct DeptCode from Employee)  p
+          FOR XML PATH (''))
+          , 1, 1, '')
+
+DECLARE @tongluong AS NVARCHAR(MAX) = N'Tổng lương'
+
+SET @sql =N'SELECT EmployeeCode, EmployeeName, '+@columnName1+'
+FROM Employee AS Tb1
+PIVOT
+(
+SUM (Salary) FOR DeptCode IN ('+@deptcodes+')
+) AS Tb2
+UNION ALL
+SELECT CAST ('''' AS NVARCHAR(16)) AS EmployeeCode,
+N''' + @tongluong + N''' AS EmployeeName, '+@columnName2+'
+FROM (SELECT DeptCode, Salary FROM EmPloyee) AS Tb3
+PIVOT
+(
+SUM(Salary)
+FOR DeptCode IN ('+@deptcodes+')
+) AS Tb4'
+EXEC sp_executesql @sql
+
+--=====================
+--=====================
+/*BAITAP2: Viết báo cáo tổng hợp số lượng bán hàng theo từng khách hàng và từng mặt hàng với cấu trúc 
+như sau:
+*/
+DECLARE @_CusCode NVARCHAR(MAX) = STUFF(
+         (SELECT ',' + CustomerCode
+          FROM (SELECT DISTINCT Cus.CustomerCode FROM AccDoc AccD
+                LEFT JOIN AccDocDetail AccDl ON AccD.DocNo = AccDl.DocNo
+                LEFT JOIN Item ON AccDl.ItemCode = Item.ItemCode
+                LEFT JOIN Customer Cus ON AccD.CustomerCode = Cus.CustomerCode
+                WHERE AccDl.DocCode = 'HD')  p
+          FOR XML PATH (''))
+          , 1, 1, '')
+
+SELECT Stt= CAST(ROW_NUMBER() OVER (order by ItemCode)AS nvarchar(16)), ItemCode, ItemName, Unit, KH01, KH02, KH03, N'Tổng số lượng' = KH01+KH02+KH03 FROM (
+SELECT Item.ItemCode, Item.ItemName, Item.Unit, Cus.CustomerCode, AccDl.Quantity FROM AccDoc AccD
+    LEFT JOIN AccDocDetail AccDl ON AccD.DocNo = AccDl.DocNo
+    LEFT JOIN Item ON AccDl.ItemCode = Item.ItemCode
+    LEFT JOIN Customer Cus ON AccD.CustomerCode = Cus.CustomerCode
+    WHERE AccDl.DocCode = 'HD') tb1
+PIVOT
+(
+SUM(Quantity)
+FOR CustomerCode IN (KH01,KH02,KH03)
+) AS Tb2
+UNION ALL
+SELECT Stt = '', ItemCode = N'Tổng cộng', ItemName = '', Unit= '',KH01, KH02, KH03, N'Tổng số lượng' = KH01+KH02+KH03 FROM 
+(SELECT Cus.CustomerCode, SUM(AccDl.Quantity) As SumQ FROM AccDoc AccD
+    LEFT JOIN AccDocDetail AccDl ON AccD.DocNo = AccDl.DocNo
+    LEFT JOIN Item ON AccDl.ItemCode = Item.ItemCode
+    LEFT JOIN Customer Cus ON AccD.CustomerCode = Cus.CustomerCode
+    WHERE AccDl.DocCode = 'HD'
+    GROUP BY Cus.CustomerCode) tb3
+PIVOT
+(
+SUM(SumQ)
+FOR CustomerCode IN (KH01,KH02,KH03)
+) AS Tb4
+
+--=================
+--=================
+/*BAITAP3: Viết báo cáo tổng hợp doanh số bán hàng theo từng khách hàng và từng mặt hàng với cấu 
+trúc như sau*/
+
+DECLARE @_itemcode NVARCHAR(MAX) = STUFF(
+         (SELECT ',' + ItemCode
+          FROM (SELECT DISTINCT Item.ItemCode FROM AccDoc AccD
+                LEFT JOIN AccDocDetail AccDl ON AccD.DocNo = AccDl.DocNo
+                LEFT JOIN Item ON AccDl.ItemCode = Item.ItemCode
+                LEFT JOIN Customer Cus ON AccD.CustomerCode = Cus.CustomerCode
+                WHERE AccDl.DocCode = 'HD')  p
+          FOR XML PATH (''))
+          , 1, 1, '')
+
+SELECT Stt= CAST(ROW_NUMBER() OVER (order by CustomerCode)AS nvarchar(16)), CustomerCode, CustomerName, TP01, TP02, TP03, N'Tổng số lượng' = TP01+TP02+TP03 FROM (
+SELECT Cus.CustomerCode, Cus.CustomerName, Item.ItemCode, AccDl.Quantity FROM AccDoc AccD
+    LEFT JOIN AccDocDetail AccDl ON AccD.DocNo = AccDl.DocNo
+    LEFT JOIN Item ON AccDl.ItemCode = Item.ItemCode
+    LEFT JOIN Customer Cus ON AccD.CustomerCode = Cus.CustomerCode
+    WHERE AccDl.DocCode = 'HD'
+    ) tb1
+PIVOT
+(
+SUM(Quantity)
+FOR ItemCode IN (TP01, TP02, TP03)
+) AS Tb2
+UNION ALL
+SELECT Stt = '', ustomerCode = N'Tổng cộng', CustomerName= '', TP01, TP02, TP03, N'Tổng số lượng' = TP01+TP02+TP03 FROM 
+(SELECT Item.ItemCode, SUM(AccDl.Quantity) As SumQ FROM AccDoc AccD
+    LEFT JOIN AccDocDetail AccDl ON AccD.DocNo = AccDl.DocNo
+    LEFT JOIN Item ON AccDl.ItemCode = Item.ItemCode
+    LEFT JOIN Customer Cus ON AccD.CustomerCode = Cus.CustomerCode
+    WHERE AccDl.DocCode = 'HD'
+    GROUP BY Item.ItemCode) tb3
+PIVOT
+(
+SUM(SumQ)
+FOR ItemCode IN (TP01, TP02, TP03)
+) AS Tb4
+
+--==========================
+--==========================
+/*BAITAP4: Viết báo cáo thể hiện bảng kê có nội dung và cấu trúc tương tự như bảng sau:
+*/
+
+SELECT Stt,  N'Số chứng từ' = DocNo, N'Ngày chứng từ' = ngay_chung_tu,  N'Mã vật tư' = ItemCode,
+N'Diễn giải' = dien_giai, N'Tiền'= tien
+FROM
+( SELECT * FROM(
+    SELECT Stt= CAST(ROW_NUMBER() OVER (PARTITION BY Item.ItemCode order by Tb1.DocNo)AS nvarchar(16)), Tb1.DocNo, ngay_chung_tu = FORMAT (Tb1.DocDate, 'dd/MM/yyyy '), Tb2.ItemCode, 
+CASE Tb1.DocCode WHEN 'NM' THEN N'Mua chứng từ' WHEN 'PX' THEN N'Nhập kho' END AS dien_giai,
+CASE Tb1.DocCode WHEN 'NM' THEN Tb2.Amount1 WHEN 'PX' THEN Tb2.Amount2 END AS tien
+FROM AccDoc Tb1 LEFT JOIN AccDocDetail Tb2 ON Tb1.DocNo = Tb2.DocNo 
+    LEFT JOIN Item ON Tb2.ItemCode = Item.ItemCode 
+WHERE Tb1.DocCode IN ('NM','PX')
+UNION ALL
+SELECT Stt='', DocNo = '', ngay_chung_tu = '', Item.ItemCode, 
+Item.ItemName as dien_giai, SUM(Tb2.Amount1 + Tb2.Amount2) as tien
+FROM AccDoc Tb1 LEFT JOIN AccDocDetail Tb2 ON Tb1.DocNo = Tb2.DocNo 
+    LEFT JOIN Item  ON Tb2.ItemCode = Item.ItemCode
+WHERE Tb1.DocCode IN ('NM','PX')
+GROUP BY Item.ItemCode, Item.ItemName 
+) TbU1
+UNION ALL 
+SELECT Stt='', DocNo = '', ngay_chung_tu = '', ItemCode = '', 
+ dien_giai = N'Tổng cộng',  SUM(Amount1 + Amount2) as tien FROM AccDocDetail 
+WHERE DocCode IN ('NM','PX')
+) Kq
+ORDER BY  ItemCode DESC, Stt, ngay_chung_tu
+
+--=============================
+--=============================
+/*BAITAP5: Viết báo cáo thể hiện chi tiết các lần nhập xuất vật tư có nội dung và cấu trúc tương 
+tự bảng sau:*/
+
+IF OBJECT_ID('tempdb..#Tb_chitiet_nhapxuat ') IS NOT NULL DROP TABLE #Tb_chitiet_nhapxuat
+
+-- SELECT * INTO #Tb_chitiet_nhapxuat FROM(
+-- SELECT AccDl.ItemCode, ngay = FORMAT (Acc.DocDate, 'dd/MM/yyyy '),
+-- CASE Acc.DocCode WHEN 'NM' THEN N'Nhập hàng'
+-- WHEN 'PX' THEN N'Xuất hàng' END AS noi_dung,
+-- CASE WHEN Acc.DocCode='NM' THEN CAST(Quantity as nvarchar(16))
+-- ELSE '' END AS sl_nhap,
+-- CASE WHEN Acc.DocCode='NM' THEN CAST(Amount1 as nvarchar(16))
+-- ELSE '' END AS tien_nhap,
+-- CASE WHEN Acc.DocCode='PX' THEN CAST(Quantity as nvarchar(16))
+-- ELSE '' END AS sl_xuat,
+-- CASE WHEN Acc.DocCode='PX' THEN CAST(Amount2 as nvarchar(16))
+-- ELSE '' END AS tien_xuat,
+-- sl_ton = 0, sldu = 0
+-- FROM AccDoc Acc LEFT JOIN AccDocDetail AccDl ON Acc.DocNo = AccDl.DocNo
+-- WHERE Acc.DocCode IN ('NM', 'PX')
+-- ) Tb1
+SELECT * INTO #Tb_chitiet_nhapxuat FROM(
+SELECT AccDl.ItemCode, ngay = Acc.DocDate,
+CASE Acc.DocCode WHEN 'NM' THEN N'Nhập hàng'
+WHEN 'PX' THEN N'Xuất hàng' END AS noi_dung,
+CASE WHEN Acc.DocCode='NM' THEN Quantity
+ELSE 0 END AS sl_nhap,
+CASE WHEN Acc.DocCode='NM' THEN Amount1 
+ELSE 0 END AS tien_nhap,
+CASE WHEN Acc.DocCode='PX' THEN Quantity 
+ELSE 0 END AS sl_xuat,
+CASE WHEN Acc.DocCode='PX' THEN Amount2 
+ELSE 0 END AS tien_xuat,
+sl_ton = 0, sldu = 0
+FROM AccDoc Acc LEFT JOIN AccDocDetail AccDl ON Acc.DocNo = AccDl.DocNo
+WHERE Acc.DocCode IN ('NM', 'PX')
+) Tb1
+--======
+IF OBJECT_ID('tempdb..#Tb_chitiet_nhapxuatton ') IS NOT NULL DROP TABLE #Tb_chitiet_tksd
+
+SELECT * INTO #Tb_chitiet_nhapxuatton FROM (
+SELECT ItemCode , ngay = '1900-01-01', noi_dung = N'Tồn đầu kỳ', sl_nhap = 0, tien_nhap = 0, 
+sl_xuat = 0, tien_xuat = 0, sl_ton = Quantity, sldu = Amount  FROM OpenInventory 
+Where ItemCode In (SELECT DISTINCT ItemCode FROM #Tb_chitiet_nhapxuat)
+UNION ALL 
+SELECT * FROM #Tb_chitiet_nhapxuat) Tb
+
+SELECT ItemCode, ngay, noi_dung, sl_nhap, tien_nhap, sl_xuat, tien_xuat,
+tonkho = sum(sl_ton + sl_nhap - sl_xuat) OVER (PARTITION BY ItemCode ORDER by  ngay), 
+sodu = sum(sldu + tien_nhap - tien_xuat) OVER (PARTITION BY ItemCode ORDER by ItemCode, ngay)
+FROM #Tb_chitiet_nhapxuatton 
+UNION ALL
+SELECT Itemcode, ngay = '9999-12-30', noi_dung = N'Tổng nhập/xuất', sl_nhap = SUM(sl_nhap), tien_nhap = SUM(tien_nhap),
+sl_xuat = SUM(sl_xuat), tien_xuat = SUM(tien_xuat), tonkho = 0, sodu = 0 FROM #Tb_chitiet_nhapxuat
+GROUP BY ItemCode
+UNION ALL
+SELECT ItemCode, ngay = '9999-12-31', noi_dung = N'Tồn cuối kỳ', sl_nhap = 0, tien_nhap = 0,
+sl_xuat = 0, tien_xuat = 0, tonkho = SUM(sl_ton) + SUM(sl_nhap) - SUM(sl_xuat),
+sodu = SUM(sldu)+ SUM(tien_nhap) - SUM(tien_xuat) FROM #Tb_chitiet_nhapxuatton
+GROUP BY ItemCode
+ORDER BY ItemCode, ngay
+
+ 
